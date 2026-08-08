@@ -39,3 +39,9 @@ The goal of this project is not to claim that all of the code was written from s
 The project is based on "U.N. Owen Was Her?", the Extra Stage boss theme associated with Flandre Scarlet in Touhou 6: Embodiment of Scarlet Devil.
 
 This is a fan-made learning project and is not affiliated with the Touhou Project.
+
+# How to run the code
+
+Just do
+- g++ melody.c++ -o melody -lwinmm
+- .\melody
