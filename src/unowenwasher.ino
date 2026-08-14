@@ -5,9 +5,10 @@
 #define MS_PER_BEAT 400UL
 #define TICKS_PER_BEAT 384U
 
-const int BUTTON_PIN =2;
+const int BUTTON_PIN = 2;
 
-void playSong() {
+bool playing = false;
+unsigned int currentNote = 0;
 
 const byte melodyNotes[] PROGMEM = {
   74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 73, 49, 73, 49,
@@ -192,42 +193,78 @@ const unsigned int melodyTicks[] PROGMEM = {
   192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 96, 96, 192,
   96, 96, 192, 96, 96, 1536,
 };
-  
 
-const unsigned int MELODY_LENGTH = sizeof(melodyNotes) / sizeof(melodyNotes[0]);
-}
+const unsigned int MELODY_LENGTH =
+  sizeof(melodyNotes) / sizeof(melodyNotes[0]);
+
 int midiToFrequency(byte note) {
   // MIDI 69 = A4 = 440 Hz.
   return (int)(440.0 * pow(2.0, ((int)note - 69) / 12.0) + 0.5);
 }
 
-void setup() {
-  pinMode(BUTTON_INPUT, INPUT_PULLUP);
-  noTone(BUZZER_PIN);
+void waitForButtonRelease() {
+  while (digitalRead(BUTTON_PIN) == LOW) {
+    delay(5);
+  }
+  delay(40); // debounce
 }
 
-void loop() {
-  for (unsigned int i = 0; i < MELODY_LENGTH; i++) {
-    byte note = pgm_read_byte(&melodyNotes[i]);
-    unsigned int ticks = pgm_read_word(&melodyTicks[i]);
+void playSong() {
+  while (playing && currentNote < MELODY_LENGTH) {
+    byte note = pgm_read_byte(&melodyNotes[currentNote]);
+    unsigned int ticks = pgm_read_word(&melodyTicks[currentNote]);
 
+    // Original timing:
     // 150 BPM = 400 ms per beat; 384 ticks per beat.
-    // All durations in this song are multiples of 96 ticks, so the
-    // conversion is exact: 96 ticks = 100 ms, 192 = 200 ms, etc.
-    unsigned long duration = ((unsigned long)ticks * MS_PER_BEAT) / TICKS_PER_BEAT;
+    unsigned long duration =
+      ((unsigned long)ticks * MS_PER_BEAT) / TICKS_PER_BEAT;
 
-    if(digitalRead(BUTTON_INPUT)==LOW) {
-      playsong();
-    }
     if (note == 0) {
       noTone(BUZZER_PIN);
     } else {
       tone(BUZZER_PIN, midiToFrequency(note));
     }
 
-    delay(duration);
+    // Wait for this note/rest while still checking the button.
+    // The note duration is still based on the original tick timing.
+    unsigned long startTime = millis();
+
+    while ((unsigned long)(millis() - startTime) < duration) {
+      if (digitalRead(BUTTON_PIN) == LOW) {
+        noTone(BUZZER_PIN);
+
+        // Stop and restart from note 0 on the next press.
+        playing = false;
+        currentNote = 0;
+
+        waitForButtonRelease();
+        return;
+      }
+      delay(1);
+    }
+
+    currentNote++;
   }
 
   noTone(BUZZER_PIN);
-  delay(1000);
+
+  // Song finished: next button press starts from the beginning.
+  playing = false;
+  currentNote = 0;
+}
+
+void setup() {
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  noTone(BUZZER_PIN);
+}
+
+void loop() {
+  if (!playing && digitalRead(BUTTON_PIN) == LOW) {
+    // Start/restart from the beginning.
+    currentNote = 0;
+    playing = true;
+
+    waitForButtonRelease();
+    playSong();
+  }
 }
