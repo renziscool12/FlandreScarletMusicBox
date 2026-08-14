@@ -5,6 +5,10 @@
 #define MS_PER_BEAT 400UL
 #define TICKS_PER_BEAT 384U
 
+const int BUTTON_PIN =2;
+
+void playSong() {
+
 const byte melodyNotes[] PROGMEM = {
   74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 73, 49, 73, 49,
   73, 74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 76, 52, 76,
@@ -188,16 +192,17 @@ const unsigned int melodyTicks[] PROGMEM = {
   192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 192, 96, 96, 192,
   96, 96, 192, 96, 96, 1536,
 };
+  
 
 const unsigned int MELODY_LENGTH = sizeof(melodyNotes) / sizeof(melodyNotes[0]);
-
+}
 int midiToFrequency(byte note) {
   // MIDI 69 = A4 = 440 Hz.
   return (int)(440.0 * pow(2.0, ((int)note - 69) / 12.0) + 0.5);
 }
 
 void setup() {
-  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(BUTTON_INPUT, INPUT_PULLUP);
   noTone(BUZZER_PIN);
 }
 
@@ -211,6 +216,9 @@ void loop() {
     // conversion is exact: 96 ticks = 100 ms, 192 = 200 ms, etc.
     unsigned long duration = ((unsigned long)ticks * MS_PER_BEAT) / TICKS_PER_BEAT;
 
+    if(digitalRead(BUTTON_INPUT)==LOW) {
+      playsong();
+    }
     if (note == 0) {
       noTone(BUZZER_PIN);
     } else {
