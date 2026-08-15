@@ -1,17 +1,42 @@
+/*
+ * U.N. Owen Was Her? - Arduino UNO R3
+ * Converted from the uploaded MIDI.
+ *
+ * Conversion:
+ *   - MIDI resolution: 384 ticks/beat
+ *   - MIDI tempo: 150 BPM (400 ms/beat)
+ *   - Multi-track MIDI reduced to one monophonic melody
+ *   - Highest currently active note is kept
+ *
+ * Wiring:
+ *   Button: D2 -> button -> GND
+ *   Buzzer: D8 -> resistor -> passive buzzer -> GND
+ *
+ * Behavior:
+ *   Press once  = play from beginning
+ *   Press again = stop and reset
+ *   Press again = play from beginning
+ */
+
 #include <avr/pgmspace.h>
 #include <math.h>
 
+#define BUTTON_PIN 2
 #define BUZZER_PIN 8
+
+// 74HC595 pins
+#define SR_DATA 11    // SER / DS
+#define SR_CLOCK 12   // SRCLK / SH_CP
+#define SR_LATCH 10   // RCLK / ST_CP
+
 #define MS_PER_BEAT 400UL
 #define TICKS_PER_BEAT 384U
-
-const int BUTTON_PIN = 2;
 
 bool playing = false;
 unsigned int currentNote = 0;
 
 const byte melodyNotes[] PROGMEM = {
- 74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 73, 49, 73, 49,
+  74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 73, 49, 73, 49,
   73, 74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 76, 52, 76,
   52, 76, 74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 73, 49,
   73, 49, 73, 74, 71, 66, 74, 71, 66, 74, 71, 66, 74, 71, 66, 76,
@@ -224,55 +249,87 @@ const unsigned int melodyTicks[] PROGMEM = {
 };
 
 const unsigned int MELODY_LENGTH =
-  sizeof(melodyNotes) / sizeof(melodyNotes[0]);
+    sizeof(melodyNotes) / sizeof(melodyNotes[0]);
+
+// Send 16 LED bits through the two daisy-chained 74HC595s.
+// The first 8 bits go to the second 595, the next 8 to the first 595.
+void setLEDs(uint16_t pattern) {
+  digitalWrite(SR_LATCH, LOW);
+
+  shiftOut(SR_DATA, SR_CLOCK, MSBFIRST, (pattern >> 8) & 0xFF);
+  shiftOut(SR_DATA, SR_CLOCK, MSBFIRST, pattern & 0xFF);
+
+  digitalWrite(SR_LATCH, HIGH);
+}
+
+// Turn LEDs into a simple "wing" effect based on the current note.
+// MIDI notes are folded into 16 positions so every note produces a
+// visible pattern without needing a second large note table.
+uint16_t ledPatternForNote(byte note) {
+  if (note == 0) {
+    return 0;
+  }
+
+  int center = note % 8;
+
+  uint16_t pattern = 0;
+
+  // Light a small cluster around the note position.
+  pattern |= (uint16_t)1 << center;
+
+  if (center > 0) {
+    pattern |= (uint16_t)1 << (center - 1);
+  }
+  if (center < 7) {
+    pattern |= (uint16_t)1 << (center + 1);
+  }
+
+  // Mirror the same pattern onto the other 8 LEDs,
+  // giving the two wings a symmetrical appearance.
+  pattern |= pattern << 8;
+
+  return pattern;
+}
 
 int midiToFrequency(byte note) {
   return (int)(440.0 * pow(2.0, ((int)note - 69) / 12.0) + 0.5);
 }
 
-// Wait until the button is released so one press
-// doesn't get detected multiple times.
 void waitForButtonRelease() {
   while (digitalRead(BUTTON_PIN) == LOW) {
     delay(5);
   }
-
-  delay(40); // debounce
+  delay(40);
 }
 
 void playSong() {
-
   while (playing && currentNote < MELODY_LENGTH) {
 
     byte note = pgm_read_byte(&melodyNotes[currentNote]);
     unsigned int ticks = pgm_read_word(&melodyTicks[currentNote]);
 
     unsigned long duration =
-      ((unsigned long)ticks * MS_PER_BEAT) / TICKS_PER_BEAT;
+        ((unsigned long)ticks * MS_PER_BEAT) / TICKS_PER_BEAT;
 
-    // Play note or rest
     if (note == 0) {
       noTone(BUZZER_PIN);
+      setLEDs(0);
     } else {
       tone(BUZZER_PIN, midiToFrequency(note));
+      setLEDs(ledPatternForNote(note));
     }
 
     unsigned long startTime = millis();
 
-    // Keep checking the button while the note is playing
     while ((unsigned long)(millis() - startTime) < duration) {
 
-      // BUTTON PRESSED → STOP
+      // Press while playing = stop and reset.
       if (digitalRead(BUTTON_PIN) == LOW) {
-
         noTone(BUZZER_PIN);
-
+        setLEDs(0);
         playing = false;
         currentNote = 0;
-
-        // Wait for the user to release the button
         waitForButtonRelease();
-
         return;
       }
 
@@ -282,31 +339,30 @@ void playSong() {
     currentNote++;
   }
 
-  // Song finished naturally
   noTone(BUZZER_PIN);
-
+  setLEDs(0);
   playing = false;
   currentNote = 0;
 }
 
 void setup() {
-
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
 
+  pinMode(SR_DATA, OUTPUT);
+  pinMode(SR_CLOCK, OUTPUT);
+  pinMode(SR_LATCH, OUTPUT);
+
   noTone(BUZZER_PIN);
+  setLEDs(0);
 }
 
 void loop() {
-
-  // BUTTON PRESSED while stopped → START SONG
+  // Press while stopped = start from beginning.
   if (!playing && digitalRead(BUTTON_PIN) == LOW) {
-
     currentNote = 0;
     playing = true;
-
     waitForButtonRelease();
-
     playSong();
   }
 }
